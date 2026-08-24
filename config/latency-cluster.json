@@ -1,0 +1,29 @@
+{
+  "applicationGroup": "cd-raft",
+  "nodes": [
+    {"id": "a1", "domainCode": "domain-a", "listenAddress": "127.0.0.1:7101", "interDomainAddress": "127.0.0.1:8101"},
+    {"id": "a2", "domainCode": "domain-a", "listenAddress": "127.0.0.1:7102", "interDomainAddress": "127.0.0.1:8102"},
+    {"id": "a3", "domainCode": "domain-a", "listenAddress": "127.0.0.1:7103", "interDomainAddress": "127.0.0.1:8103"},
+    {"id": "b1", "domainCode": "domain-b", "listenAddress": "127.0.0.1:7201", "interDomainAddress": "127.0.0.1:8201"},
+    {"id": "b2", "domainCode": "domain-b", "listenAddress": "127.0.0.1:7202", "interDomainAddress": "127.0.0.1:8202"},
+    {"id": "b3", "domainCode": "domain-b", "listenAddress": "127.0.0.1:7203", "interDomainAddress": "127.0.0.1:8203"},
+    {"id": "c1", "domainCode": "domain-c", "listenAddress": "127.0.0.1:7301", "interDomainAddress": "127.0.0.1:8301"},
+    {"id": "c2", "domainCode": "domain-c", "listenAddress": "127.0.0.1:7302", "interDomainAddress": "127.0.0.1:8302"},
+    {"id": "c3", "domainCode": "domain-c", "listenAddress": "127.0.0.1:7303", "interDomainAddress": "127.0.0.1:8303"}
+  ],
+  "features": {
+    "fastReturnEnabled": true
+  },
+  "networkSimulation": {
+    "enabled": true,
+    "localOneWayDelayMillis": 1,
+    "interDomainOneWayMillis": {
+      "domain-a->domain-b": 50,
+      "domain-b->domain-a": 50,
+      "domain-a->domain-c": 80,
+      "domain-c->domain-a": 80,
+      "domain-b->domain-c": 60,
+      "domain-c->domain-b": 60
+    }
+  }
+}

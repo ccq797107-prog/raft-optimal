@@ -1,0 +1,26 @@
+{
+  "applicationGroup": "cd-raft",
+  "_comment": "华为云 3 共识域 + 1 漂流域：domain-a=北京(1.92.115.7/192.168.0.198)、domain-b=上海(123.60.74.154/192.168.0.122)、domain-c=广州(110.41.85.62/192.168.0.229)、domain-d=贵阳(101.245.65.31/192.168.0.36)漂流域（只跑 client，没有 nodes 条目）。每个共识域机器跑 3 个节点，端口 7101-7103/8101-8103。同域 peer 走本机私网 IP(listenAddress)；跨域 peer 走 EIP(publicInterDomainAddress)；客户端重定向/外部工具走 EIP(publicListenAddress)；本机统一绑 0.0.0.0。弹性 IP 变更时：改该机器 3 个节点的 publicListenAddress 和 publicInterDomainAddress。漂流域 EIP 变更时：改 cloud-client.sh 的 -reply-route 和两个脚本的 eip()。",
+  "nodes": [
+    {"id": "a1", "domainCode": "domain-a", "listenAddress": "192.168.0.198:7101", "interDomainAddress": "192.168.0.198:8101", "bindListenAddress": "0.0.0.0:7101", "bindInterDomainAddress": "0.0.0.0:8101", "publicListenAddress": "1.92.115.7:7101", "publicInterDomainAddress": "1.92.115.7:8101"},
+    {"id": "a2", "domainCode": "domain-a", "listenAddress": "192.168.0.198:7102", "interDomainAddress": "192.168.0.198:8102", "bindListenAddress": "0.0.0.0:7102", "bindInterDomainAddress": "0.0.0.0:8102", "publicListenAddress": "1.92.115.7:7102", "publicInterDomainAddress": "1.92.115.7:8102"},
+    {"id": "a3", "domainCode": "domain-a", "listenAddress": "192.168.0.198:7103", "interDomainAddress": "192.168.0.198:8103", "bindListenAddress": "0.0.0.0:7103", "bindInterDomainAddress": "0.0.0.0:8103", "publicListenAddress": "1.92.115.7:7103", "publicInterDomainAddress": "1.92.115.7:8103"},
+
+    {"id": "b1", "domainCode": "domain-b", "listenAddress": "192.168.0.122:7101", "interDomainAddress": "192.168.0.122:8101", "bindListenAddress": "0.0.0.0:7101", "bindInterDomainAddress": "0.0.0.0:8101", "publicListenAddress": "123.60.74.154:7101", "publicInterDomainAddress": "123.60.74.154:8101"},
+    {"id": "b2", "domainCode": "domain-b", "listenAddress": "192.168.0.122:7102", "interDomainAddress": "192.168.0.122:8102", "bindListenAddress": "0.0.0.0:7102", "bindInterDomainAddress": "0.0.0.0:8102", "publicListenAddress": "123.60.74.154:7102", "publicInterDomainAddress": "123.60.74.154:8102"},
+    {"id": "b3", "domainCode": "domain-b", "listenAddress": "192.168.0.122:7103", "interDomainAddress": "192.168.0.122:8103", "bindListenAddress": "0.0.0.0:7103", "bindInterDomainAddress": "0.0.0.0:8103", "publicListenAddress": "123.60.74.154:7103", "publicInterDomainAddress": "123.60.74.154:8103"},
+
+    {"id": "c1", "domainCode": "domain-c", "listenAddress": "192.168.0.229:7101", "interDomainAddress": "192.168.0.229:8101", "bindListenAddress": "0.0.0.0:7101", "bindInterDomainAddress": "0.0.0.0:8101", "publicListenAddress": "110.41.85.62:7101", "publicInterDomainAddress": "110.41.85.62:8101"},
+    {"id": "c2", "domainCode": "domain-c", "listenAddress": "192.168.0.229:7102", "interDomainAddress": "192.168.0.229:8102", "bindListenAddress": "0.0.0.0:7102", "bindInterDomainAddress": "0.0.0.0:8102", "publicListenAddress": "110.41.85.62:7102", "publicInterDomainAddress": "110.41.85.62:8102"},
+    {"id": "c3", "domainCode": "domain-c", "listenAddress": "192.168.0.229:7103", "interDomainAddress": "192.168.0.229:8103", "bindListenAddress": "0.0.0.0:7103", "bindInterDomainAddress": "0.0.0.0:8103", "publicListenAddress": "110.41.85.62:7103", "publicInterDomainAddress": "110.41.85.62:8103"}
+  ],
+  "features": {
+    "fastReturnEnabled": true,
+    "floatingDomains": ["domain-d"],
+    "floatingTelemetryTtlMillis": 5000,
+    "allowUnknownFloatingDomains": false
+  },
+  "networkSimulation": {
+    "enabled": false
+  }
+}

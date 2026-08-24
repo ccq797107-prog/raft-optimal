@@ -1,0 +1,16 @@
+# macOS metadata
+.DS_Store
+
+# TLA+/TLC generated state spaces, checkpoints, and reports
+/states/
+docs/tla/states/
+docs/tla/.tlacache/
+docs/tla/*.out
+docs/tla/*.err
+docs/tla/*.log
+docs/tla/MC_*.tla
+docs/tla/MC_*.cfg
+docs/tla/*_TTrace_*.tla
+docs/tla/TE.tla
+docs/tla/TE.cfg
+docs/tla/TE.out

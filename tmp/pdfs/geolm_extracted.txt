@@ -1,0 +1,1046 @@
+
+
+===== PAGE 1 =====
+GeoLM: Performance-oriented Leader Management
+for Geo-Distributed Consensus Protocol
+Duling Xu†§, Dafang Zhang†§, Tong Li†*, Yunpeng Chai†, Zegang Sun†, Weiming Li†,
+Yangfan Liu†, Qipeng Wang†, Jiaqi Liang‡, Yang Ren‡, Wei Lu†, and Xiaoyong Du†
+Renmin University of China†, Huawei‡,
+Abstract—The global business of transnational enterprises systems ensuring strong consistency in data access across
+demands geo-distributed databases, where the leader-follower- different data centers or cloud providers. These new business
+based consensus protocols are the key to guaranteeing consistency
+models are driving the development of a new paradigm for
+of replicas spread across regions. Compared with traditional
+geo-distributed databases.
+databases running in a single data center, determining which
+node is the leader in consensus protocol has a greater per- Consensus protocols such as Paxos [22], Raft [23], or their
+formance impact in geo-distributed databases running across variants [24]–[34] have been widely used in modern distributed
+multiple data centers. However, the performance of legacy databases such as GaussDB [35], TiDB [36], PolarDB [37],
+leader management is far from satisfactory due to the network
+Spanner [6], Aurora [38], and Neon [39]. These consensus pro-
+and application dynamics (e.g., network delay, node popularity,
+tocols apply a leader-follower paradigm to guarantee replica
+operation read-write ratio). This paper proposes GeoLM toward
+performance-oriented leader management for geo-distributed consistency, where a leader node is responsible for handling
+consensus protocols. GeoLM captures the network and ap- client requests. In contrast, other nodes participate as followers
+plication dynamics and proactively conducts seamless leader to synchronize operation logs. The influence of leader selection
+handovers with bounded switching costs. Our geo-distributed
+on performance is negligible in traditional databases operating
+experimental results show that GeoLM improves performance
+within a single data center. However, our study reveals that in
+up to 49.75% over the baselines (e.g., Raft and Geo-Raft) and
+achieves considerably good performance compared to state-of- geo-distributed databases, the role of the leader significantly
+the-art consensus protocols (e.g., SwiftPaxos, CURP, and EPaxos). impacts system performance (see §III-A).
+Index Terms—Geo-Distributed Database, Leader Management, Traditional consensus protocols perform well within the data
+Log Replication
+center network [33], [40]. However, geo-distributed consensus
+protocol runs over a wide-area network (WAN) with various
+I. INTRODUCTION
+application requirements, where the best leader selection is
+Distributed databases, with their high scalability, high avail- challenging due to the network dynamics and application
+ability, and cost-effectiveness, are widely applied in fields dynamics. First, the link delays between the leader to the
+such as cloud computing and big data analytics [1]–[21]. followers significantly impact the log-replication latency. This
+Traditional distributed databases are typically confined within reveals that leader selection should capture network dynamics
+a single data center [4]–[9]. However, with the increasing in terms of network delays among all nodes. Second, selecting
+trend of data circulation in the digital economy era, transna- a leader node with more popular replicas or write operations
+tional industries including banking, e-commerce, and cloud reduces forwarding delays among nodes, improving system
+providers often operate multiple data centers. For instance, performance. This reveals that leader selection should capture
+Huawei [10] and Amazon [11] span 93 and 105 availabil- application dynamics in terms of node popularity and read-
+ity data centers within 33 geographic regions, respectively. write ratio of operations (see §III-B). However, the legacy
+Recently, distributed databases have evolved from isolated ways of leader management typically focus either on network
+services limited to single data centers towards collaborative dynamics or application dynamics alone [25], [26]. In sum-
+services spanning multiple data centers. For example, Google mary, the legacy leader management schemes are far from
+BigQuery Omni [12] and Snowflake [13] connect data ware- satisfactory for geo-distributed consensus protocols.
+houses across Google Cloud, AWS, Azure, and other cloud To tackle these issues, we introduce GeoLM1, which consid-
+providers, enabling real-time interactions during user queries ers both the network dynamics and application dynamics and
+across multiple clouds. Kubernetes Federation [14] connects proactively conducts seamless leader handovers with bounded
+multiple Kubernetes clusters over the Internet, where functions switching costs. First, GeoLM periodically selects a target
+and data may reside in different regions or across differ- node according to a utility function of link delays, node pop-
+ent public cloud providers. In China, emerging companies ularity, and operation read-write ratio. This ensures GeoLM’s
+like DatenLord [15], which implements distributed database network and application awareness. Second, GeoLM adjusts
+the leader switching window where the target node’s utility
+This work is supported by the NSFC Project (No.62202473,62441230, remains positive. This avoids leader-switching oscillations and
+No.U23A20299, and No.6241101193), the CCF-Huawei Populus Grove Fund
+(No.CCF-HuaweiDB202308). §The first two authors contributed equally to
+this work. *Tong Li is the corresponding author (tong.li@ruc.edu.cn). 1GeoLM is named after Geo-distributed Leader Management.
+
+
+===== PAGE 2 =====
+bounds GeoLM’s overall switching costs. Third, GeoLM
+allows the current leader node to pre-synchronize logs with a 125
+target node that has fallen behind. This capability can aid the
+120
+target node in winning the election and ensuring consistency 115
+in the consensus protocol.
+110 We have implemented the GeoLM prototype in a dis-
+tributed database based on ETCD and integrated it into the Node 1 Node 2 Node 3 Node 4 Node 5
+maintained Raft protocol [41]. GeoLM extends the leader
+management module without affecting the execution processes
+of the storage layer and database layer, thus ensuring com-
+patibility with log-replication-based variants. We then con-
+duct evaluations through both trace-driven simulation and
+testbed deployment. Evaluation results show that GeoLM re-
+duces average/worst-case transaction latency over the baselines
+Raft by up to 30.77%/49.75% and Geo-Raft [27] by up to
+23.97%/24.62%, respectively. GeoLM also achieves consider-
+ably good performance compared to the most recent leader-
+management-based approach SwiftPaxos [26] and the state-of-
+the-art log-replication-based approaches such as CURP [28]
+and EPaxos [31]. This serves as a strong validation of GeoLM.
+The paper is organized as follows. §II overviews the related
+work. §III introduces the background and motivates GeoLM.
+The overview of GeoLM is depicted in §IV. The design and
+implementation are elaborated in §V. In §VI, we evaluate
+GeoLM. Finally, §VII concludes the paper.
+II. RELATED WORK
+This section provides an overview of methods to enhance
+the performance of geo-distributed consensus protocols.
+Optimization on leader management. As for leader man-
+agement, several variants based on Paxos/Raft are proposed
+to enhance the communication efficiency of the consensus
+protocol [24]–[26], [42]. For example, Xu et al. [24] pro-
+pose Raft-Plus to use inter-node network delay for leader
+selection. Vukolic et al. [25] proposed the Droopy/Dripple to
+strategically configure the leader ensemble based on historical
+workload and system response latency to better fit uneven
+workload conditions. Ryabinin et al. [26] propose SwiftPaxos,
+which changes the election process using two-round voting,
+accelerating the election process in case of replica divergence.
+These works focus either on network dynamics (e.g., Raft-
+Plus) or application dynamics (e.g., Droopy/Dripple, Swift-
+Paxos) alone.
+Optimization on log replication. In terms of log replication,
+the fundamental optimization strategy involves enhancing per-
+formance through reducing communication requirements [27]–
+[34]. Among them, Geo-raft [27], CURP [28], and Pig-
+paxos [29] fall into the category of introducing new roles
+(e.g., secretary, observer, relay) to ease leader performance
+bottlenecks. Fast Paxos [30], EPaxos [31], Dpaxos [32], Cock-
+RoachDB [33], and GeoGauss [34] fall into the category of
+reducing the long-distance communication times to shorten
+global database transaction time. These studies, however,
+demand intrusive modifications to the logic of log replication,
+limiting their applicability. For example, CURP and EPaxos
+)ces/sqer(
+tuphguorhT
+Max: 69.90
+70 Max: 122.90
+60
+Average: 117.86 95.80%
+9.15% 50 Average: 49.10
+Min: 112.60 40 Min: 35.70
+Node 1 Node 2 Node 3 Node 4 Node 5
+(a) Intra data center. (b) Inter data center.
+Fig. 1: An example of performance change when changing
+the leader node over intra-datacenter and inter-datacenter
+links. The X-axis represents the leader node.
+260
+240
+220
+200
+tuphguorhT
+)ces/sqer(
+Original Raft
+Modified Raft
+Leader Change
+80
+60
+0 100 200 300 400 500
+Time (s)
+yaleD )sm( Sharp Increase
+Fig. 2: An example of how delays impact performance.
+rely on the assumption of commutativity of operations and
+adapt to limited scenarios. Essentially, these variants operate
+independently of our proposed GeoLM, which can seamlessly
+integrate with these variants to enhance performance further.
+III. BACKGROUND AND MOTIVATION
+A. Leader Selection is More Crucial in Geo-Distributed Con-
+sensus Protocols
+In a consensus protocol with the leader-follower paradigm,
+the leader handles client communication and coordinates the
+replication and synchronization of data replicas on other
+follower nodes. In general, choosing a better node as the leader
+positively correlates with performance. However, compared
+with traditional consensus protocol running in a single data
+center, leader election in geo-distributed consensus protocol
+has a greater performance impact. To explain this more
+clearly, we modified ETCD-Raft [41] to give an example
+of performance change when changing the leader node over
+intra-datacenter and inter-datacenter links. Figure 1 shows the
+results. The impact of leader selection on performance is
+unremarkable for traditional databases running in a single data
+center (a better leader only improves 9.15% performance).
+However, when nodes are spread across regions in a geo-
+distributed database, the system performance is more crucial
+to who is the leader node (a better leader improves 95.80%
+performance). This reveals that leader selection is more crucial
+in geo-distributed consensus protocols.
+B. Leader Selection Should Capture Network Dynamics and
+Application Dynamics
+When operating a geo-distributed consensus protocol, we
+see multiple challenges in determining the best leader selec-
+tion. We will elaborate next.
+
+
+===== PAGE 3 =====
+Client
+(cid:27)(cid:19)
+Popularity = 50% Popularity = 20%
+(cid:25)(cid:19)
+1 Popularity = 30% 3
+(cid:23)(cid:19)
+2
+1(cid:82)(cid:71)(cid:72)(cid:3)(cid:20)(cid:3)(cid:3) 1(cid:82)(cid:71)(cid:72)(cid:3)(cid:3)(cid:3)(cid:3)(cid:21)(cid:3)(cid:3)(cid:3)(cid:3)(cid:3)(cid:3)1(cid:82)(cid:71)(cid:72)(cid:3)(cid:22)(cid:3)(cid:68)(cid:86)(cid:3)(cid:79)(cid:72)(cid:68)(cid:71)(cid:72)(cid:85)
+(a) Popularity (b) Completion time under different node as leader.
+(cid:12)(cid:86)(cid:80)(cid:11)(cid:3)(cid:72)(cid:80)(cid:76)7(cid:3)(cid:81)(cid:82)(cid:76)(cid:87)(cid:72)(cid:79)(cid:83)(cid:80)(cid:82)(cid:38)
+1(cid:82)(cid:71)(cid:72)(cid:3)(cid:20) 1(cid:82)(cid:71)(cid:72)(cid:3)(cid:21) 1(cid:82)(cid:71)(cid:72)(cid:3)(cid:22) Client Client Client
+(cid:27)(cid:24) (cid:27)(cid:20) R:W = 100:0 Read Read
+Leader
+(cid:25)(cid:28)(cid:25)(cid:26) 1 T
+T
+1
+2
+R
+A
+e
+p
+d
+p
+i
+e
+r
+n
+e
+d
+ct
+e
+W
+nt
+r
+r
+i
+i
+t
+e
+e
+s
+T1 1 T
+T
+1
+2
+R
+C
+e
+o
+d
+m
+ir
+m
+ec
+it
+t
+t e
+R
+d
+e
+r
+a
+e
+d
+p ly
+1
+(cid:25)(cid:20) T T T T 3 4 A C p om pe m nd it e te d d r e re p p ly ly T2 T3 T T 1 2 A A p pp p e e n n d d e e d n r tr e i p e l s y T1 T2
+(cid:23)(cid:25) (cid:23)(cid:26) (cid:23)(cid:22) 2 T 3 2 T4 3 2 T1 3
+Leader T2
+(cid:22)(cid:20) R:W = 0:100 Write Write
+Client Client Client
+(a) Example of nodes (b) Leader only reads (c) Leader only writes
+Fig. 3: An example of how node popularity impacts Fig. 4: An example of how the read-write ratio impacts
+performance. (a) shows an example of a cluster with performance. The read-write ratio on Node 1 is 100:0, and
+different popularity. (b) shows the time required for each on Node 2 is 0:100. The red text markers represent the
+node in the cluster to complete its requests when the cluster time required for write requests, and the blue text markers
+leader is controlled (from left to right, Node 1, Node 2, represent the time for read requests.
+and Node 3 as the leader).
+reveals that leader selection should prioritize nodes with a
+higher popularity.
+Observation #1 (Network Dynamics): Leader selection de-
+pends on network delays among all nodes. Geo-distributed Observation #3 (Application Dynamics): Leader Selection
+consensus protocol runs over a WAN whose dynamics are depends on the read-write ratio of operations. The access
+non-negligible [43]. The network dynamics is manifested in pattern can fluctuate over time due to shifts in application
+three aspects. (a) Enlarged value of delays. The round-trip usage, business needs, or seasonal demands. Where read
+time (RTT) of an inter-data-center link (e.g., 100 ms) is over operations can be handled directly by either the leader or
+three orders of magnitude higher than that of an intra-data- any followers while write operations require a leader to
+center link (e.g., 10 us). (b) Enlarged difference of delays. coordinate proposals among followers, achieving agreement
+The RTT differences among nodes are tens to hundreds of through a quorum, and ensuring durability through replicated
+milliseconds (e.g., RTT = 20 ms vs. RTT = 200 ms), which logs. Under identical network conditions, nodes assuming the
+is non-negligible compared with the node processing delay. role of leader experience performance variations based on
+(c) Enlarged fluctuation of delays. The optimal leader may their read-write ratio of operations. Specifically, selecting a
+become sub-optimal due to RTT fluctuation caused by network leader with more write operations reduces forwarding delay
+congestion or route change. Figure 2 gives an example of from followers to the leader, improving system performance.
+performance change when changing the leader node under To explain this clearly, Figure 4 (a) shows an example of 3
+network deterioration (a sharp increase in the total delay nodes with the same network delays (i.e., RTT = 2T) but
+among all nodes). We modified the ETCD-Raft to change its with different read-write ratios (i.e., the read-write ratio on
+leader node at 200 s. Figure 2 shows that the performance Node 1 is 100:0, and the read-write ratio on Node 2 is 0:100).
+impact from delay deterioration can be significantly reduced. When Node 1 acts as the leader (see Figure 4 (b)), the latency
+This reveals that leader selection should consider network is doubled compared to when Node 2 acts as the leader
+delays among all nodes. Geo-distributed consensus protocol (see Figure 4 (c)). This reveals that leader selection should
+also serves applications with dynamic characteristics. The prioritize nodes with a lower read-write ratio.
+application dynamics is manifested in two aspects: node
+C. Challenges
+popularity and read-write ratio of workload. We discuss it next.
+How to determine the target node? A target node is the node
+Observation #2 (Application Dynamics): Leader selection
+that has the potential to be the best leader. Our observations
+depends on node popularity. Node popularity refers to the
+have shown that leader selection should consider network
+measure of how frequently a node is accessed or utilized for
+dynamics (i.e., network delay) and application dynamics (i.e.,
+operations such as reads or writes. Under identical network
+node popularity, read-write ratio). Generally, the system per-
+conditions, nodes assuming the role of leader experience
+formance gain after a node becomes the leader is positively
+performance variations based on their respective levels of
+related to a utility model, where the utility function should
+node popularity. Specifically, selecting a leader node with
+simultaneously consider factors including network delay, node
+more popular replicas reduces forwarding delays among nodes,
+popularity, and read-write ratio. In this paper, GeoLM deter-
+improving the system performance. To explain this more
+mines the target node if it achieves the highest utility value.
+clearly, we show an example of three nodes with the same
+network delays (i.e., RTT = 20 ms) but with different node How can the target node be voted the leader? The target
+popularity (i.e., 50%, 30%, and 20%, respectively) in Figure 3. node with the highest utility may lose the election during the
+It has been observed that when Node 1 (with 50% popularity) election process. This can be attributed to the outdated log of
+acts as the leader, the latency is 34.7% lower compared to the target node. To ensure the target node receives votes from
+when Node 3 (with 20% popularity) acts as the leader. This a majority of the nodes, the log of the target node should be
+
+
+===== PAGE 4 =====
+up-to-date before sending out request-to-vote RPCs (Remote
+Geo-Distributed Database
+Procedure Calls). In this paper, GeoLM proactively switches
+the leader regardless of whether the current leader fails or Network Popularity Read-Write
+Delays Ratio
+not, distinguishing it from legacy consensus protocols that Node
+only initiate leader changes in response to leader failures. To State Machine
+ensure the target node is voted as the leader, GeoLM takes
+Target Leader Leader Log
+full advantage of the present leader node to pre-synchronize Selection Handover Election Replication
+Candidate
+logs where the target node has fallen behind. Target Set
+Target Node
+Switching Geo-Distributed
+How to control the frequency of leader switching? A small Damping GeoLM Consensus Protocol
+frequency of leader switching may fail to respond promptly to
+network and application dynamics. In contrast, frequent leader Network Storage Services (timer/scheduler/thread pool…)
+switching may induce excessive switching costs, degrading the
+Fig. 5: The framework of GeoLM.
+system’s performance. Assuming that each leader switching
+requires a fixed cost, the total cost induced by GeoLM is When substituting Equations (2) and (3) in (1), the utility
+proportional to the switching frequency. In this paper, GeoLM of node n can be modeled as follows:
+adopts a damping mechanism to dynamically adjust the leader
+N
+switching window to control the frequency of leader switching. u = (cid:88) P ∗ [(T leader − T n) + W · (T leader − T n )]
+n i i i i median median
+The goal is to adapt to network and application dynamics with
+i=1
+bounded switching costs. (4)
+where T leader denotes the median link delay from the leader
+median
+IV. GEOLM OVERVIEW to all followers, and T n denotes the median link delay
+median
+from node n to all other nodes. Here we argue that that
+The primary goal of GeoLM is to achieve consistently high
+applying the median link delay T to approximate the
+performance by switching the leader node according to the net- median
+commit latency τ is reasonable. This is because the leader
+work and application dynamics. In this section, we first model
+must wait for confirmation from at least half of all followers.
+the utility function for each node following its assumption of
+leadership, and then we introduce the framework of GeoLM B. GeoLM Framework
+based on the utility model.
+Figure 5 illustrates the general framework of a geo-
+distributed consensus protocol, where GeoLM adds three com-
+A. Utility Modeling
+ponents (colored with red blocks) namely: (1) Target Selection,
+We define the node utility u as the performance improve- (2) Switching Damping, and (3) Leader Handover. These
+ment when it becomes the leader. For a distributed database additional components cooperate with the existing modules
+consisting of N nodes, the utility of a node n is: (colored with purple and blue blocks) in the legacy consensus
+protocol, aiming to achieve high-performance leader manage-
+N
+(cid:88)
+u = P · (Cleader − Cn) (1) ment for geo-distributed databases.
+n i i i
+i=1 Target Selection. The input of this component is the RTT
+where P refers to the popularity of node i, Cleader represents matrix between each node, the popularity of each node, and the
+i i
+the completion time of requests reaching node i with the read-write ratio of operations. These states are continuously
+present leadership, and Cn represents the completion time of updated at the leader node via interaction with follower nodes.
+i
+requests reaching node i when node n acts as the leader. According to Equation (4), the component first calculates the
+According to the way of handling read and write opera- utility values for all nodes. Next, it identifies nodes with utility
+tions in consensus protocols, Cleader and Cn can be further values exceeding 0 to compose a designated collection (termed
+i i
+computed as follows: the target set) as the output. This ensures GeoLM’s network
+and application awareness (see §V-A).
+Cleader = R · T leader + W · (τ + T leader) (2)
+i i i i leader i
+Switching Damping. The target set may contain multiple op-
+where R i and W i refer to the read ratio and write ratio of tional nodes. The utility values of nodes may also vary dynam-
+operations, respectively. Particularly, we have R i + W i = 1. ically (e.g., sometimes being greater than 0 and other times
+T leader represents the RTT between node i and the leader less than 0). This may result in leader-switching oscillations.
+i
+node, τ leader represents the commit latency of node i with the To tackle this issue, GeoLM introduces a component, called
+present leadership. Similarly, we have Switching Damping, to select a stable node with a positive
+and high utility value. Specifically, the component dynamically
+Cn = R · T n + W · (τ + T n) (3)
+i i i i n i adjusts the leader switching window (i.e., observation period)
+where T n represents the RTT between node i and n, τ where the target node’s utility value should be kept to exceed
+i n
+represents the commit latency of node i with the leadership 0. This also controls the frequency of leader switching and
+of node n. bounds GeoLM’s overall switching costs (see §V-B).
+
+
+===== PAGE 5 =====
+Handover executed Handover unexecuted Handover executed
+Node 1 Collected 1 2 3 4 5 Utility
+1 Information 1 0 𝑻𝟏 𝟐 𝑻𝟏 𝟑 𝑻𝟏 𝟒 𝑻𝟏 𝟓 Computation Window Window Window
+2 3 RTT to peers 2 0 𝑼𝒏 = 000 001 011 000 010 100 010 100 000 000 001 001 000
+4 … 5 𝑻𝟏 𝟐 R R a e 𝑻 t a io 𝟏 𝟑 d - W … 𝑾 rite 𝟏 𝑻𝟏 𝟓 3 4 5 𝑻𝟓 𝟏 D 𝑻 e 𝟓 𝟐 lay 𝑻 … M 𝟓 𝟑 at 𝑻 r 0 𝟓 𝟒 ix 0 ∑ 𝑾 𝑵𝒊# 𝒊× 𝟏 ( 𝑷 𝑻 𝒊 𝒎𝒍𝒆 × 𝒂𝒆𝒅𝒅 [ 𝒊𝒆 ( 𝒂𝒓 𝑻 + 𝒏 𝒊𝒍 — 𝒆𝒂𝒅 𝑻 𝒆 𝒎𝒏 𝒓 𝒆 — 𝒅𝒊𝒂 𝑻 𝒏 𝒊𝒏 ) ) ] Summarized Information 𝟎 𝟏 : : 𝑼 𝑼 𝒕 𝒕 𝒊 𝒊 𝒍 𝒍 𝒊 𝒊 𝒕 𝒕 𝒚 𝒚 ≤ > 𝟎 𝟎
+2 1 3 Nu R m e b q e u r e s 𝑸 t 𝟏 W1 R R a e t a io d … - V W ec ri t t o e r W5 Utility 1 V 0 e 0 c 0 to 1 r 2 1 3 1 1 1 : : : 1 1 1 5 3 2 0 0 0 % % % Com U p ti u li t t a y t ion 1 0 0
+Node 5 Collected P1 … P5 Target Set = Node Read-Write
+4 5 Information Popularity Vector { Node1, Node 5 } Delay Ratio Popularity Utility Score
+Fig. 6: An example of target selection workflow. Fig. 7: An example of switching damping.
+B. Switching Damping
+Leader Handover. Before the target node becomes the can-
+didate for leader election, the Leader Handover component The design rationale of switch damping is to increase the
+enables the present leader node to pre-synchronize logs where difficulty of switching if the handover is executed successfully
+the target node has fallen behind. Specifically, GeoLM applies and reduce the difficulty of switching if the handover is
+a modified Node State Machine where the present leader unexecuted for a period. We define this period as the damping
+acts as the Helper Node for proactive leader switching. This window (denoted by wnd), during which we decide whether to
+can help the target node win the election and ensure the enter the leader handover. Assume the initial window is wnd
+0
+consistency of the consensus protocol (see §V-C). (typically proportional to the heartbeat cycle, see Figure 12(b)
+for more details), during the damping window, we check if
+V. SYSTEM DESIGN DETAILS there is at least one node whose utility value remains consis-
+tently positive (i.e., u > 0). If yes, we double the damping
+This section elaborates on the design and implementation
+window (i.e., wnd = 2 ∗ wnd) and enter the leader handover
+of the specific modules in GeoLM.
+phase (as we will discuss in the next section); Otherwise, we
+halve the damping window (i.e., wnd = min{ wnd , wnd })
+A. Target Selection 2 0
+and keep the leader node unchanged. Switch damping can
+Figure 6 gives an example of a five-node geo-distributed control the switching frequency, thereby achieving a bounded
+database to better explain the workflow of the Target Selection. switching cost (see §VI-C for more details).
+First, for network delays, we’ve integrated application- To explain this more clearly, Figure 7 further gives an exam-
+layer RTT estimation into the consensus protocol to adapt ple of how the Switch Damping component works. Assume the
+to network dynamics. First of all, each node measures the initial window is wnd = 2. Then we collect 2 utility vectors
+0
+smoothed RTT from this node to all other nodes via the < 0, 0, 1 > and < 0, 1, 1 > and find that the utility of Node 3
+heartbeat messages. Then the leader collects all the RTT keeps positive during the damping window. Then the damping
+vectors from each follower via the RttProbeResp messages. window is doubled (i.e., wnd = 4) and Node 3 begins acting
+For instance, the RTT vector of Node 1 is < T 2, T 3, T 4, T 5 >. as the role of the candidate node. After the leader is switched
+1 1 1 1
+These RTT vectors ultimately converge at the leader node, to Node 3, we have to monitor 4 utility vectors < 0, 1, 0 >,
+where it is reshaped into a delay matrix as shown in Figure 6. < 1, 0, 0 >, < 0, 1, 0 >, and < 1, 0, 0 > instead to check
+Second, the read-write ratio should be updated according to if there is any node whose utility value keeps positive during
+longer-term statistics where each follower counts the number the damping window. In the example of Figure 7, we find
+of read-operations (e.g., query) and write-operations (e.g., that none of the nodes meet the conditions (i.e., the target set
+update and insert) on each node and periodically syncs the is ∅). In this case, the damping window will be halved (i.e.,
+read-write ratio to the leader. For instance, the leader can wnd = 2).
+maintain a write-ratio vector < W , W , ..., W >, where W
+1 i 5 i
+C. Leader Handover
+denotes the write ratio of Node i.
+Third, the node popularity cannot be estimated indepen- The Leader Handover component modifies the leader
+dently by a single node. Instead, it requires the followers election process by introducing a scheme called Log Pre-
+(e.g., Node i) to periodically send the number of local requests Synchronization. Specifically, we allow the leader to proac-
+(from clients, denoted by Q ) to the leader. The leader then tively retrieve the latest log index from the target node and
+i
+calculates each node’s popularity accordingly. For instance, update the logs accordingly, ensuring that the target node has
+the popularity vector is < P , P , ..., P >, where P denotes the same maximum log index as the leader at the current
+1 i 5 i
+the popularity of Node i. term. This approach ensures that the target can more easily
+Finally, according to Equation (4), we calculate the node get votes after initiating an election. After the leader sends
+utility as the performance improvement when it becomes the the log message to the target node, it steps down to become
+leader. All nodes with positive utility enter the target set for a helper and stops sending heartbeats. When the target node
+selection, such as Nodes 1 and 5 in Figure 6. gets the log completion message, it already knows the leader
+
+
+===== PAGE 6 =====
+Leader Candidate Helper Follower
+Receive Msg.Heartbeat
+Client Request
+Receive higher term
+starts up
+P1 t 0 t 2 t 5 Receive higher term
+Requests Election Timeout
+P2 ① ③ ④ ⑤ transfer Follower Candidate Leader Helper
+P3 t 1 ② t 3 ④ ⑤ t 4
+Election ④ ⑤ Win Heartbeat Timeout Votes from majority Receive Msg. LogsCompletion
+P4
+Receive Committed Logs
+P5 ④ ⑤
+Fig. 9: The node state machine in GeoLM.
+Fig. 8: An example of leader handover.
+has stepped down and initiates an election without waiting
+for the heartbeat timeout (usually 150-300 ms [41]). This
+significantly reduces the cluster’s downtime caused by waiting
+for the timeout, ensuring the target has a higher priority in
+initiating the election. Fig. 10: A table of node state functions.
+To explain this more clearly, we give an example of the
+broadcasted periodically from each node in an all-to-
+entire handover process in Figure 8. Step ⃝1 : At time t
+0
+, the
+all paradigm, and the Msg.RttProbeResp messages are
+Leader Node (P1) decides to transfer leadership to P3 and
+sent to return timestamps for RTT sampling. Messages
+sends Msg.1 (as Message 1, the same below) to P3 to request
+Msg.LeaderHandover and Msg.LeaderHandoverResp (i.e.,
+its latest log index. Step ⃝2 : P3 receives Msg.1 at t
+1
+and
+Msg.1 and Msg.2 in Figure 8) are sent when the leader
+responds to P1 with Msg.2, which carries P3’s latest log index.
+decides to transfer leadership. Msg.LogsCompletion message
+Step ⃝3 : At t
+2
+, after receiving the response, P1 sends Msg.3 to
+is sent by the candidate to transition the leader into a helper.
+P3, containing all the committed logs at the leader (from P3’s
+The GeoLM implementation also modifies the Node State
+latest log index to P1’s latest log index at t ), then steps down
+2
+Machine of the consensus protocol. As illustrated in Figure 9,
+to become a Helper Node, stopping heartbeats and beginning
+we introduce helper, a new node state in which the prior
+caching client requests. P3 receives the committed logs from
+leader node helps to cache requests before a new leader
+P1 at t
+3
+and begins to catch up. Step ⃝4 : P3 then becomes
+wins in the election process. Particularly, when receiving
+the Candidate Node and starts an election by sending Msg.4
+Msg.LogsCompletion message from the candidate, the leader
+to request votes. Step ⃝5 : At t
+4
+, the other Follower Nodes
+transitions to the helper. When receiving Msg.Heartbeat mes-
+respond to the vote requests with Msg.5, casting their votes.
+sage from a new leader, the helper transitions to the fol-
+Eventually, P3 obtains the majority of votes and successfully
+lower. During log pre-synchronization, when receiving the pre-
+becomes the new leader.
+synced committed logs from the leader, the follower (i.e.,
+It is worth noting that another follower (other than the target
+target node) transitions to the candidate. Figure 10 further
+node) might also reach the heartbeat timeout and initiate an
+lists the functions of nodes under different states. Particularly,
+election, winning the election before the target node enters
+the helper stops sending Msg.Heartbeat and begins caching
+the leader handover phase. In this case, GeoLM falls back to
+requests instead of processing requests.
+the legacy way of leader election. Upon receiving a heartbeat
+from the new leader, the Helper Node transitions to a Follower VI. EVALUATION
+Node and forwards all client requests from its term, ensuring
+A. Experiment Setup
+seamless handover without downtime.
+Setup. We evaluate GeoLM by prototyping it on our trace-
+D. Implementation driven simulation and real-world testbed deployment.
+We implemented GeoLM in a distributed database based • Trace-driven simulation: We utilize local servers with
+on ETCD [41] and integrated it into the maintained Raft Traffic Control (TC) netem [44] for our testing. To accurately
+protocol with less than 500 lines of code. Specifically, we simulate complex network scenarios, including irregular ab-
+reuse the already existing messages such as Msg.Heartbeat, solute delay variations and jitter, we base our simulations on
+Msg.Vote, and Msg.Granted. Msg.Heartbeat is used to the trace data of the worldwide Amazon AWS cloud from an
+report the heartbeat, Msg.Vote (i.e., Msg.4 in Figure 8) is open website [45]. By applying the tool of Piecewise Cubic
+sent from the candidate to request votes, and Msg.Granted Hermite Interpolating Polynomial (PCHIP) [46], we generated
+(i.e., Msg.5 in Figure 8) is sent by the follower/helper over 10,000 multi-dimensional link delay matrices (10x10)
+to grant votes. We further define several new types that reflect the average link delays and distribution patterns
+of messages such as Msg.RttProbe, Msg.RttProbeResp, among the geo-distributed AWS servers. These delay matrices
+Msg.LeaderHandover, Msg.LeaderHandoverResp, and are fed into TC to simulate the time-varying delays between
+Msg.LogsCompletion. The Msg.RttProbe messages are data nodes in our geo-distributed database.
+
+
+===== PAGE 7 =====
+300
+200
+100
+0
+)sm(
+ycnetaL
+Average
+1000
+500
+0
+Workload A Workload B Workload C Workload D
+)sm(
+ycnetaL
+Raft Geo-Raft GeoLM
+600
+400
+200
+Tail
+0 Throughput Frequency
+Fig. 11: Overall performance.
+• Real-world testbed deployment: We also deploy a seven-
+node geo-distributed database across various regions to assess
+performance in a real production environment. The server
+locations and configurations are as follows: one server in
+Guangzhou, two servers in Beijing (located in two different
+data centers), and two servers in Shanghai (also in two
+different data centers). Each server uses the HUAWEI Cloud
+c3.xlarge.2 instance with Ubuntu 22.04 Server 64-bit, and is
+configured with 4 CPU cores, 8GB of RAM.
+Workloads. We conducted tests using the Yahoo! Cloud
+Serving Benchmark (YCSB) [47] and focused on workloads
+A, B, C, and D as primary test loads. Workload A consists of
+50% reads and 50% updates. Workload B is made up of 95%
+reads and 5% updates. Workload C consists entirely of reads
+(100%) with a uniform access distribution. Lastly, Workload D
+comprises 95% reads and 5% inserts, maintaining a read-write
+ratio similar to Workload B while evaluating data insertion.
+Schemes. We conduct a comparative performance evaluation
+of GeoLM with state-of-the-art consensus protocols. First,
+since GeoLM is integrated into Raft [23], it and Geo-Raft [27]
+are considered as baseline. We also compare GeoLM with the
+state-of-the-art Raft/Paxos variants including SwiftPaxos [26],
+CURP [28], and Epaxos [31]. Among them, SwiftPaxos is a
+representative leader-management-based approach to enhance
+performance. CURP and Epaxos are two representative log-
+replication-based approaches to enhance performance, whereas
+Epaxos further represents the leaderless consensus protocol.
+B. Overall Performance
+Method. Overall performance is measured using the YCSB
+benchmarking tool, where 20 clients simultaneously send
+requests to the system, completing 100,000 operations in
+120,000 records. We monitor the average latency per request.
+Rigorously and fairly, we compared GeoLM with two baseline
+schemes, Raft and Geo-Raft, which were both uniformly
+implemented in the same ETCD project and compared under
+the same network traces and workloads.
+Results. The subfigure at the top portion of Figure 11 indicates
+that GeoLM reduces the average transaction latency over Raft
+by 29.74%, 30.77%, 15.64%, and 25.46% for Workloads A,
+B, C, and D, respectively. In comparison to Geo-Raft, GeoLM
+demonstrated enhancements of 23.97%, 11.89%, 2.08%, and
+10.56% for Workloads A, B, C, and D, respectively. We also
+)ces/sqer(
+tuphguorhT
+25
+20
+15
+10
+5
+0
+)h/semiT(
+ycneuqerF
+w Damping
+w/o Damping
+700
+680
+660
+640
+620 32 34 36 38 40 42
+Average Latencys (ms)
+(a) Damping vs. w/o damping.
+)sm(
+ycnetaL
+liaT
+GeoLM wnd0 = 20 GeoLM wnd0 = 40
+GeoLM wnd0 = 80 Raft
+(b) Parameter sensitivity.
+Fig. 12: (a) Effectiveness of switching damping. (b) Per-
+formance under different initial damping windows (wnd )
+0
+with the unit of heartbeat cycle in GeoLM (1 heartbeat
+cycle = 200 ms), and Raft (default).
+examined performance under worst-case conditions, specifi-
+cally the (99th percentile) tail latency. As illustrated in the bot-
+tom portion of Figure 11, GeoLM’s tail latency improved over
+Raft by 29.59%, 49.75%, 34.05%, and 23.21% for Workloads
+A, B, C, and D, respectively. When compared to Geo-Raft,
+the tail latency improvements are 19.81%, 18.33%, 4.19%,
+and 24.62% for Workloads A, B, C, and D, respectively.
+This demonstrates that the performance of geo-distributed
+transaction processing can be greatly improved by GeoLM.
+Additionally, we conducted experiments with more data nodes
+(e.g., 9 nodes), and the results remained consistent.
+Analysis. First, the improvement in average and tail latency
+is most significant for Workload A when comparing both Raft
+and Geo-Raft. This enhancement is due to GeoLM, which
+considers the read-write ratio of nodes and allocates network
+resources more effectively for write operations that require
+more round trips, thereby boosting overall performance. Sec-
+ond, performance improvements are relatively smaller under
+all-read workload (i.e., Workload C). This limitation arises
+because the optimizations for write operations in GeoLM
+cannot be utilized in these scenarios. Instead, only basic
+performance enhancements can be achieved by selecting more
+efficient leader nodes.
+C. GeoLM Deep Dive
+This section first investigates the optimality, effectiveness,
+and cost of the key components (i.e., Target Selection, Switch-
+ing Damping, and Leader Handover) in GeoLM. Then we
+discuss the performance impact of factors such as the read-
+write ratio and popularity. Finally, we compare GeoLM with
+more state-of-the-art Raft/Paxos variants.
+Optimality of Target Selection. We assess the optimality of
+the Target Selection component by introducing two metrics:
+precision and recall. A precision rate of 100% indicates that
+all selected target nodes are correct, meaning that these nodes
+were optimal at the time of their selection based on subsequent
+performance results. Recall measures the extent to which we
+comprehensively select the correct optimal nodes and serves
+as an auxiliary metric. We tested GeoLM in a fixed seven-node
+cluster setup with consistent read-write ratios, trace-based
+latency, and node popularity characteristics while monitoring
+
+
+===== PAGE 8 =====
+300
+200
+100
+A B C
+Workload
+ycnetaL
+egarevA
+)sm(
+w/o Log Pre-synchronization w Log Pre-synchronization
+140
+130
+120
+Fig. 13: Effectiveness of Log Pre-Synchronization.
+Raft Geo-Raft GeoLM
+each node’s actual status and overall system performance.
+We compared the performance data of each node when it
+served as the leader without switching roles. Over three
+experiments, each lasting about one hour, we observed 20
+instances of leader handovers. Of these, all 20 were correct,
+while 6 potentially correct nodes were not chosen, resulting
+in a precision rate of 100% and a recall rate of 76.92%.
+This indicates that our algorithm is highly accurate in node
+selection, and our conservative approach considers the error
+risks during handover, ensuring beneficial decision-making.
+Effectiveness of Switching Damping. In this experiment, we
+assessed the effectiveness of damping by controlling whether
+the damping module was active and observing the performance
+under both conditions. As shown in Figure 12(a), we validated
+that damping is indeed effective in improving throughput(up to
+20.34% better than not using) in GeoLM. Additionally, we ob-
+served an interesting phenomenon: although we theoretically
+bounded the switching frequency (relative to the number of
+windows) in §V-B, the initial window size, wnd , significantly 0
+impacts performance in practice. Specifically, if the window
+size is too large, it results in too few switches within the
+total completion time, leading to suboptimal performance.
+For example, in Figure 12(b), when wnd is 80 times the
+0
+heartbeat cycle, its average latency is worse than when wnd
+0
+is 40 times the heartbeat cycle. Conversely, if the window
+size is too small, such as wnd being 20 times the heartbeat
+0
+cycle, it results in an excessively high switching frequency,
+incurring additional costs. This manifests as no significant
+improvement in average latency but an increase in tail latency.
+Based on our implementation tests, we recommend using an
+initial window size of 40 heartbeat cycles. As shown by the
+pink square in Figure 12(b), this configuration achieves a
+balanced performance in both average and tail latency.
+TABLE I: Switching duration analysis.
+Waiting Time Election Duration Total Duration
+Raft 150 - 300 ms 234 ms 384 - 534 ms
+GeoLM 30 us 153 ms 154 ms
+Cost of Leader Handover. Table I gives a breakdown of the
+switching duration of GeoLM. We analyze hundreds of leader
+switching and find that the target node in GeoLM initiates an
+election within 30 us after receiving the Msg.logCompletion.
+The average switching duration is 153 ms. In contrast, Raft
+needs to wait for a heartbeat timeout of 150-300 ms to begin
+an election, with an average switching duration of 234 ms.
+Our total switch time saves at least 59.90% per switching.
+Effectiveness of Log Pre-Synchronization. We indepen-
+dently tested the impact of log pre-synchronization during
+)sm(
+ycnetaL
+egarevA
+Node 1 Node 2 Node 3
+200
+180
+160
+140
+0 5 10 15
+Epoch
+(a) Read-write ratio
+)ces/sqer(
+tuphguorhT
+GeoLM (5:3:2) Raft (1:1:1)
+GeoLM-Poor (5:3:2)
+(b) Popularity
+Fig. 14: (a) Performance impact of read-write ratio. The
+read-write ratio for Node 1 is 50:50, Node 2 is 95:5, and
+Node 3 is 100:0. (b) Performance impact of popularity.
+GeoLM-Poor represents a GeoLM variant without con-
+sidering the node’s popularity. GeoLM (5:3:2) represents
+the full implementation of GeoLM under the condition
+that the read/write requests to Nodes 1, 2, and 3 are in
+proportions of 50%, 30%, and 20%, respectively.
+handover on overall performance. As shown in Figure 13,
+using pre-synchronization significantly reduces average re-
+sponse time under all types of workloads. This advantage
+becomes particularly pronounced as the write ratio increases
+(from Workload C to A). This is because a higher write
+ratio requires more log synchronization, thus amplifying the
+benefits of log pre-synchronization. Consequently, log pre-
+synchronization enhances overall performance and achieves
+greater performance gains under a higher write ratio.
+Performance impact of read-write ratio. We simulate dif-
+ferent practical application scenarios by controlling the read-
+write ratio of the nodes while keeping the cluster latency and
+popularity conditions consistent. Specifically, we set the read-
+write ratios of Node 1, Node 2, and Node 3 to 50:50 (read-
+write balance), 95:5 (more reads and less writes), and 100%
+read (i.e., read-only), respectively. We test the performance
+of each node in each cluster (Raft, Geo-Raft, and GeoLM)
+under such extreme read-to-write ratio differences, specifically
+showing the average latency in Figure 14(a). We observed
+varying overall performances among the three solutions under
+identical cluster read-write ratio settings, particularly in han-
+dling uneven read-write ratios. Among them, Raft exhibits the
+weakest performance in managing such disparities. Geo-Raft
+shows some improvements overall, attributed to the backup
+of secretary nodes, though these gains are not substantial. In
+contrast, GeoLM demonstrates intelligent handling of uneven
+load distribution, seamlessly transitioning the leader node and
+achieving significant performance enhancements. Specifically,
+GeoLM performs approximately 10.76% better than Raft and
+about 7.27% better than Geo-Raft in these scenarios.
+Performance impact of popularity. In this experiment, we
+adjust the user request number for 3 nodes while keeping
+other variables consistent to validate the effectiveness of Ge-
+oLM regarding popularity. GeoLM-Poor represents a GeoLM
+variant without considering the node’s popularity. GeoLM
+(5:3:2) represents the full implementation of GeoLM under
+the condition that the read/write requests to Nodes 1, 2, and
+
+
+===== PAGE 9 =====
+2500
+2000
+1500
+1000
+SwiftPaxos GeoLM EPaxos CURP
+)ces/sqer(
+tuphguohT
+90
+80
+70
+Raft Geo-Raft GeoLM
+Fig. 15: Performance comparison with more schemes.
+3 are in proportions of 50%, 30%, and 20%. GeoLM-Poor
+(5:3:2) represents the GeoLM-Poor under the condition that
+the read/write requests to Nodes 1, 2, and 3 are in proportions
+of 50%, 30%, and 20%, respectively. Raft (1:1:1) represents
+the Raft under the condition that the read/write requests are
+uniformly distributed. Figure 14 (b) shows the results. We
+find that throughput in Raft (1:1:1) distributed is stable. In
+the context of non-uniform requests, the system throughput is
+initially lower than Raft cluster and consistently remains low.
+This is due to the redirection of requests before processing.
+For GeoLM (5:3:2), the initial throughput is low, but as the
+epochs progress (1 epoch = 10 min), the throughput gradually
+increases, approaching and even surpassing the performance of
+Raft (1:1:1). The reason for this improvement is that, despite
+the differing request popularity levels for each node and the
+potential need for many request redirections, the popularity
+optimization eventually influenced the switching of the leader
+node. From the logs, we observe that by the second epoch,
+the system already completed the leader switching. Subse-
+quently, the system throughput of GeoLM (5:3:2) significantly
+improves, surpassing the performance of both GeoLM-Poor
+(5:3:2) and Raft (1:1:1).
+Comparison with more schemes. We further conduct ex-
+periments to compare GeoLM with a classic leaderless dis-
+tributed consensus protocol EPaxos, the most recent single-
+leader consensus protocol SwiftPaxos, and a primary-backup
+replication protocol CURP based on the public repository
+[32]. We try our best to ensure these schemes run under
+similar conditions, including network fluctuations, popularity,
+and read-write ratios. Figure 15 indicates that GeoLM achieves
+considerably good performance compared to EPaxos, Swift-
+Paxos, and CURP, thus effectively validating the capabilities
+of GeoLM. It is worth noting that although EPaxos approaches
+its best performance, GeoLM’s worst-case performance is far
+superior. This reveals that GeoLM exhibits better stability.
+D. Real-World Testbed Deployment
+We deploy GeoLM in two representative scenarios to inves-
+tigate the GeoLM’s performance over WAN links.
+Two-region-three-center deployment: We deploy three cloud
+servers across two regions: two servers in different data centers
+in Beijing and one in Guangzhou, forming a two-region-
+three-center cluster. This type of cluster represents the most
+commonly deployed scheme in primary-backup solutions, such
+as Huawei’s primary-backup database systems, known for its
+resilience against the failure of a data center [48]. As illustrated
+in Figure 16, the final results demonstrate that GeoLM out-
+performed both Raft and Geo-Raft significantly. Specifically,
+)sm(
+ycnetaL
+280
+260
+240
+220
+Raft Geo-Raft GeoLM
+)ces/sqer(
+tuphguorhT
+(a) Latency (b) Throughput
+Fig. 16: Two-region-three-center scenario.
+100
+80
+Raft Geo-Raft GeoLM
+)sm(
+ycnetaL
+280
+260
+240
+220
+Raft Geo-Raft GeoLM
+)ces/sqer(
+tuphguorhT
+(a) Latency (b) Throughput
+Fig. 17: Three-region-five-center scenario.
+GeoLM achieved a 13.43% and 17.93% improvement in
+throughput compared to Raft and Geo-Raft, respectively. In
+terms of average latency, GeoLM exhibited 15.26% lower
+latency than GeoRaft and 11.89% lower latency than Raft.
+For tail latency, GeoLM showed reductions of 21.12% and
+18.41% compared to GeoRaft and Raft, respectively.
+Three-region-five-center deployment: We deploy five cloud
+servers across three regions: one in Guangzhou, two in differ-
+ent data centers in Beijing, and two in different data centers
+in Shanghai, forming a three-region-five-center cluster, Which
+represents the most widely discussed and researched scheme
+in academia, to withstand the failure of an entire region. As
+depicted in Figure 17, the results are as follows: In terms
+of throughput, GeoLM outperforms GeoRaft by 28.95% and
+Raft by 23.27%. In terms of average latency, GeoLM shows
+22.59% lower latency than GeoRaft and 19.02% lower than
+Raft. In terms of tail latency, GeoLM demonstrates reductions
+of 26.45% compared to GeoRaft and 26.52% to Raft.
+VII. CONCLUSION
+Leader management becomes significantly more crucial
+in geo-distributed databases than in databases confined to
+a single data center. We propose GeoLM, which, for the
+first time, integrates both network and application dynamics
+to proactively optimize leader switching. This significantly
+enhances transaction performance while ensuring consistency
+and bounding switching costs. In the future, we plan to
+open-source GeoLM to drive innovation in the field of geo-
+distributed consensus protocols.
+ACKNOWLEDGMENTS
+We thank the reviewers for their valuable suggestions. We
+thank Feng Zhang, Ju Fan, Yueguo Chen, Mengxing Liu,
+and Zheng Chen for their guidance and support. We are also
+grateful for conversations with and feedback from Zhanhuai
+Li and Guoliang Li.
+
+
+===== PAGE 10 =====
+REFERENCES [22] L. Lamport, “Paxos made simple,” ACM SIGACT News, pp. 51–58,
+2001.
+[1] D. Borthakur, J. Gray, J. S. Sarma, K. Muthukkaruppan, N. Spiegelberg, [23] D. Ongaro and J. Ousterhout, “In search of an understandable consensus
+H. Kuang, K. Ranganathan, D. Molkov, A. Menon, S. Rash et al., algorithm,” in USENIX ATC, 2014, pp. 305–319.
+“Apache hadoop goes realtime at facebook,” in Proceedings of the 2011 [24] J. Xu, W. Wang, Y. Zeng, Z. Yan, and H. Li, “Raft-plus: Improving
+ACM SIGMOD, 2011, pp. 1071–1080. raft by multi-policy based leader election with unprejudiced sorting,”
+[2] X. Zhang, H. Wu, Z. Chang, S. Jin, J. Tan, F. Li, T. Zhang, and Symmetry, vol. 14, no. 6, p. 1122, 2022.
+B. Cui, “Restune: Resource oriented tuning boosted by meta-learning for [25] S. Liu and M. Vukolic´, “Leader set selection for low-latency geo-
+cloud databases,” in Proceedings of the 2021 international conference replicated state machine,” IEEE TPDS, vol. 28, no. 7, pp. 1933–1946,
+on management of data, 2021, pp. 2102–2114. 2016.
+[26] F. Ryabinin, A. Gotsman, and P. Sutra, “Swiftpaxos: Fast geo-replicated
+[3] Z. Chen, F. Zhang, J. Guan, J. Zhai, X. Shen, H. Zhang, W. Shu, and
+state machines,” in USENIX NSDI, 2024.
+X. Du, “Compressgraph: Efficient parallel graph analytics with rule-
+based compression,” Proceedings of the ACM on Management of Data, [27] Z. Xu, C. Stewart, and J. Huang, “Elastic, geo-distributed raft,” in
+IEEE/ACM IWQoS, 2019.
+vol. 1, no. 1, pp. 1–31, 2023.
+[28] S. J. Park and J. Ousterhout, “Exploiting commutativity for practical
+[4] A. Lakshman and P. Malik, “Cassandra: a decentralized structured
+fast replication,” in USENIX NSDI, 2019.
+storage system,” ACM SIGOPS operating systems review, vol. 44, no. 2,
+[29] A. Charapko, A. Ailijiang, and M. Demirbas, “Pigpaxos: Devouring the
+pp. 35–40, 2010.
+communication bottlenecks in distributed consensus,” in ACM SIGMOD,
+[5] A. Thomson, T. Diamond, S.-C. Weng, K. Ren, P. Shao, and D. J. Abadi,
+2021.
+“Calvin: fast distributed transactions for partitioned database systems,”
+[30] L. Lamport, “Fast paxos,” Springer DISC, vol. 19, pp. 79–103, 2006.
+in ACM SIGMOD, 2012, pp. 1–12.
+[31] I. Moraru, D. G. Andersen, and M. Kaminsky, “There is more consensus
+[6] J. C. Corbett, J. Dean, M. Epstein, A. Fikes, C. Frost, J. J. Furman,
+in egalitarian parliaments,” in ACM SOSP, 2013.
+S. Ghemawat, A. Gubarev, C. Heiser, P. Hochschild et al., “Spanner:
+[32] F. Nawab, D. Agrawal, and A. El Abbadi, “Dpaxos: Managing data
+Google’s globally distributed database,” ACM TOCS, vol. 31, no. 3, pp.
+closer to users for low-latency and mobile applications,” in ACM
+1–22, 2013.
+SIGMOD, 2018, pp. 1221–1236.
+[7] A. Dragojevic´, D. Narayanan, M. Castro, and O. Hodson, “{FaRM}:
+[33] R. Taft, I. Sharif, A. Matei, N. VanBenschoten, J. Lewis, T. Grieger,
+Fast remote memory,” in 11th USENIX Symposium on Networked
+K. Niemi, A. Woods, A. Birzin, R. Poss et al., “Cockroachdb: The
+Systems Design and Implementation (NSDI 14), 2014, pp. 401–414.
+resilient geo-distributed sql database,” in ACM SIGMOD, 2020, pp.
+[8] B. Dageville, T. Cruanes, M. Zukowski, V. Antonov, A. Avanes, J. Bock,
+1493–1509.
+J. Claybaugh, D. Engovatov, M. Hentschel, J. Huang, A. W. Lee, A. Mo-
+[34] W. Zhou, Q. Peng, Z. Zhang, Y. Zhang, Y. Ren, S. Li, G. Fu, Y. Cui,
+tivala, A. Q. Munir, S. Pelley, P. Povinec, G. Rahn, S. Triantafyllis, and
+Q. Li, C. Wu et al., “Geogauss: Strongly consistent and light-coordinated
+P. Unterbrunner, “The snowflake elastic data warehouse,” in Proceedings
+oltp for geo-replicated sql database,” ACM SIGMOD, vol. 1, no. 1, pp.
+of the 2016 International Conference on Management of Data, ser.
+1–27, 2023.
+SIGMOD ’16, 2016, p. 215–226.
+[35] Huawei, “Gaussdb,” https://www.huaweicloud.com/intl/en-
+[9] K. Ren, D. Li, and D. J. Abadi, “Slog: Serializable, low-latency, geo- us/product/gaussdb.html, 2024.
+replicated transactions,” VLDB, vol. 12, no. 11, 2019. [36] PingCAP, “Tidb,” https://www.pingcap.com/tidb/, 2024.
+[10] Huawei, “Huawei cloud: Everything as a service,” https://www. [37] A. Cloud, “Polardb,” https://www.alibabacloud.com/en/product/polardb?
+huaweicloud.com/intl/en-us/, 2024. p lc=1, 2024.
+[11] Amazon, “Aws global infrastructure,” https://aws.amazon.com/ [38] A. Verbitski, A. Gupta, D. Saha, M. Brahmadesam, K. Gupta, R. Mittal,
+about-aws/global-infrastructure/?nc1=h ls, 2024. S. Krishnamurthy, S. Maurice, T. Kharatishvili, and X. Bao, “Amazon
+[12] Google, “Introduction to bigquery omni,” https://cloud.google.com/ aurora: Design considerations for high throughput cloud-native relational
+bigquery/docs/omni-introduction, 2024. databases,” in ACM SIGMOD, 2017, pp. 1041–1052.
+[13] SnowFlake, “Snowflake database,” https://docs.snowflake.com/en/ [39] Neon, “Neon,” https://neon.tech/, 2024.
+sql-reference/snowflake-db, 2024. [40] R. Neiheiser, M. Matos, and L. Rodrigues, “Kauri: Scalable bft con-
+[14] Terraform, “Deploy federated multi-cloud kubernetes clusters,” sensus with pipelined tree-based dissemination and aggregation,” in
+https://developer.hashicorp.com/terraform/tutorials/networking/ Proceedings of the ACM SIGOPS 28th Symposium on Operating Systems
+multicloud-kubernetes, 2024. Principles, 2021, pp. 35–48.
+[15] DatenLord, “A high-performance geo-distributed metadata management [41] ETCD, “Etcd-raft,” https://github.com/etcd-io/etcd, 2024.
+system,” https://datenlord.github.io/xline-home/#/, 2024. [42] E. Sakic, P. Vizarreta, and W. Kellerer, “Seer: Performance-aware leader
+[16] Q. Zhuang, X. Shi, S. Liu, W. Lu, Z. Zhao, Y. Chen, T. Li, A. Pan, election in single-leader consensus,” arXiv preprint arXiv:2104.01355,
+and X. Du, “Geotp: Latency-aware geo-distributed transaction pro- 2021.
+cessing in database middlewares (extended version),” arXiv preprint [43] T. Li, D. Xu, B. Wu, X. Guo, D. Jiang, C. Luo, W. Lu, and X. Du,
+arXiv:2412.01213, 2024. “Transmission in wide-area deterministic networking: A survey,” Journal
+[17] M. Mohiuddin, M. Primorac, E. Stai, and J.-Y. Le Boudec, “Fcr: Fast and of Software, pp. 1–30, 2024.
+consistent controller-replication in software defined networking,” IEEE [44] L. Foundation, Traffic Control (tc) and Network Emulation (netem),
+Access, vol. 7, pp. 170 589–170 603, 2019. 2024, accessed: 2024-07-23. [Online]. Available: https://man7.org/linux/
+[18] W. Li, T. Li, D. Zhang, L. Dai, and Y. Chai, “Distributed consensus al- man-pages/man8/tc.8.html
+gorithms for cross-domain data management: state-of-the-art, challenges [45] I. Amazon Web Services, AWS Latency Monitoring, 2024, accessed:
+and perspectives,” Big Data Research, vol. 9, no. 4, pp. 2–15, 2023. 2024-07-23. [Online]. Available: https://aws.amazon.com/cloudwatch/
+[19] Q. Zhang, J. Li, H. Zhao, Q. Xu, W. Lu, J. Xiao, F. Han, C. Yang, and [46] F. N. Fritsch and R. E. Carlson, “Monotone piecewise cubic interpola-
+X. Du, “Efficient distributed transaction processing in heterogeneous tion,” SIAM Journal on Numerical Analysis, pp. 238–246, 1980.
+networks,” Proceedings of the VLDB Endowment, vol. 16, no. 6, pp. [47] B. F. Cooper, A. Silberstein, E. Tam, R. Ramakrishnan, and R. Sears,
+1372–1385, 2023. “Benchmarking cloud serving systems with ycsb,” in ACM symposium
+[20] L. Li, K. Xu, T. Li, K. Zheng, C. Peng, D. Wang, X. Wang, M. Shen, on Cloud computing, 2010, pp. 143–154.
+and R. Mijumbi, “A measurement study on multi-path tcp with multiple [48] Huawei Cloud, “Two-site and three-center disaster recovery solution,”
+cellular carriers on high speed rails,” in Proceedings of the 2018 2024, accessed: 2024-07-22. [Online]. Available: https://support.
+Conference of the ACM Special Interest Group on Data Communication, huaweicloud.com/intl/en-us/bestpractice-sdrs/sdrs bp cbr 0000.html
+2018, pp. 161–175.
+[21] T. Li, K. Zheng, K. Xu, R. A. Jadhav, T. Xiong, K. Winstein, and
+K. Tan, “Tack: Improving wireless transport performance by taming
+acknowledgments,” in Proceedings of the Annual conference of the ACM
+Special Interest Group on Data Communication on the applications,
+technologies, architectures, and protocols for computer communication,
+2020, pp. 15–30.

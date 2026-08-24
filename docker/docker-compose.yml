@@ -1,0 +1,65 @@
+name: cd-raft
+
+# Shared node definition. Every container reuses the same image, gets NET_ADMIN
+# so its entrypoint can apply tc/netem, and shares one data volume (state files
+# are namespaced per node id). Only service `a1` declares `build` so the image
+# tag is produced exactly once (building it on all 9 services at once races on
+# the shared tag); the rest just reference the already-built image.
+x-node: &node
+  image: cd-raft:local
+  cap_add: ["NET_ADMIN"]
+  # Mount the topology read-only so you can edit cluster.docker.json and just
+  # restart (no image rebuild). State lives in the shared named volume.
+  volumes:
+    - ./cluster.docker.json:/etc/cd-raft/cluster.json:ro
+    - cdraft-data:/var/lib/cd-raft
+  restart: unless-stopped
+
+services:
+  a1:
+    <<: *node
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    environment: { CD_NODE: a1, CD_DOMAIN: domain-a }
+    networks: { cdraft: { ipv4_address: 10.10.1.11 } }
+  a2: { <<: *node, environment: { CD_NODE: a2, CD_DOMAIN: domain-a }, networks: { cdraft: { ipv4_address: 10.10.1.12 } } }
+  a3: { <<: *node, environment: { CD_NODE: a3, CD_DOMAIN: domain-a }, networks: { cdraft: { ipv4_address: 10.10.1.13 } } }
+
+  b1: { <<: *node, environment: { CD_NODE: b1, CD_DOMAIN: domain-b }, networks: { cdraft: { ipv4_address: 10.10.2.11 } } }
+  b2: { <<: *node, environment: { CD_NODE: b2, CD_DOMAIN: domain-b }, networks: { cdraft: { ipv4_address: 10.10.2.12 } } }
+  b3: { <<: *node, environment: { CD_NODE: b3, CD_DOMAIN: domain-b }, networks: { cdraft: { ipv4_address: 10.10.2.13 } } }
+
+  c1: { <<: *node, environment: { CD_NODE: c1, CD_DOMAIN: domain-c }, networks: { cdraft: { ipv4_address: 10.10.3.11 } } }
+  c2: { <<: *node, environment: { CD_NODE: c2, CD_DOMAIN: domain-c }, networks: { cdraft: { ipv4_address: 10.10.3.12 } } }
+  c3: { <<: *node, environment: { CD_NODE: c3, CD_DOMAIN: domain-c }, networks: { cdraft: { ipv4_address: 10.10.3.13 } } }
+
+  # Long-lived helpers with stable IPs, so cdraft-client has a fixed reply-route
+  # for cross-domain / floating-domain Fast Return. Exec into them to send
+  # writes/reads.
+  #
+  # It sits INSIDE domain-a (10.10.1.x) and applies domain-a's egress shaping,
+  # so a read/write issued from here pays the real client<->GL cross-domain RTT
+  # (e.g. ~100ms to a GL in domain-b). If the client lived on an unshaped subnet,
+  # client<->node hops would be ~0 and reads would look deceptively free.
+  client:
+    <<: *node
+    environment: { CD_NODE: client, CD_DOMAIN: domain-a, CD_CLIENT_HELPER: "true" }
+    networks: { cdraft: { ipv4_address: 10.10.1.20 } }
+
+  # Floating-domain client helper. domain-d has no CD-Raft members and never
+  # appears in cluster.docker.json nodes; it is only a client origin/reply-route.
+  client-d:
+    <<: *node
+    environment: { CD_NODE: client-d, CD_DOMAIN: domain-d, CD_CLIENT_HELPER: "true" }
+    networks: { cdraft: { ipv4_address: 10.10.4.20 } }
+
+networks:
+  cdraft:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.10.0.0/16
+
+volumes:
+  cdraft-data:

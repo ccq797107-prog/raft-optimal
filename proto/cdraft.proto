@@ -1,0 +1,390 @@
+syntax = "proto3";
+
+package cdraft.v1;
+
+option go_package = "github.com/czq/cd-raft/gen/cdraft/v1;cdraftv1";
+
+message LogSummary {
+  uint64 last_global_term = 1;
+  uint64 last_global_index = 2;
+}
+
+message DomainLeaderIdentity {
+  string domain_id = 1;
+  string node_id = 2;
+  uint64 domain_term = 3;
+}
+
+message Empty {}
+
+message DomainVoteRequest {
+  string domain_id = 1;
+  string candidate_id = 2;
+  uint64 domain_term = 3;
+  LogSummary log = 4;
+}
+
+message DomainVoteResponse {
+  uint64 domain_term = 1;
+  bool granted = 2;
+}
+
+message DomainHeartbeat {
+  DomainLeaderIdentity leader = 1;
+  LogSummary log = 2;
+}
+
+message DomainLeaderReady {
+  DomainLeaderIdentity leader = 1;
+  LogSummary log = 2;
+}
+
+message GlobalVoteRequest {
+  DomainLeaderIdentity candidate = 1;
+  uint64 global_term = 2;
+  LogSummary log = 3;
+  // Set when the incumbent Global Leader is deliberately handing off (migration).
+  // Such a vote bypasses voter leader-stickiness, since the incumbent is
+  // intentionally stepping aside rather than being disrupted.
+  bool leadership_transfer = 4;
+}
+
+message GlobalVoteResponse {
+  uint64 global_term = 1;
+  bool granted = 2;
+  DomainLeaderIdentity voter = 3;
+}
+
+message GlobalHeartbeat {
+  DomainLeaderIdentity leader = 1;
+  uint64 global_term = 2;
+  uint64 commit_index = 3;
+  // Identity of the entry the leader has committed at commit_index. A receiver
+  // must only advance its own commit/apply to commit_index if its local entry
+  // there matches this identity; otherwise it holds a stale/missing entry and
+  // would commit the wrong value. By the Raft Log Matching Property a match at
+  // commit_index proves the whole prefix matches.
+  uint64 commit_term = 4;
+  string commit_request_id = 5;
+}
+
+message ReplicateEntry {
+  uint64 global_term = 1;
+  uint64 global_index = 2;
+  string request_id = 3;
+  string origin_domain = 4;
+  string key = 5;
+  string value = 6;
+  string reply_route = 7;
+  string sender_node_id = 8;
+  bool fanout_to_domain = 9;
+  // Raft log-matching: the index/term of the entry immediately preceding this
+  // one in the Global Leader's log. A receiver only accepts the entry if it
+  // holds a matching prev entry, and truncates any conflicting uncommitted tail
+  // before appending.
+  uint64 prev_log_index = 10;
+  uint64 prev_log_term = 11;
+}
+
+message DomainQuorumAck {
+  uint64 global_term = 1;
+  uint64 global_index = 2;
+  string domain_id = 3;
+  bool quorum = 4;
+}
+
+message GlobalDomainQuorumAck {
+  uint64 global_term = 1;
+  uint64 global_index = 2;
+  string global_leader_domain = 3;
+  string request_id = 4;
+  string result = 5;
+  string reply_route = 6;
+  string origin_domain = 7;
+  string responder_domain = 8;
+}
+
+message CommitNotice {
+  uint64 global_term = 1;
+  uint64 commit_index = 2;
+  repeated string evidence_domains = 3;
+  bool fanout_to_domain = 4;
+  // Identity of the Global Leader that issued this commit, so a receiver can
+  // reject commit notices that do not come from the leader it currently follows.
+  string sender_node_id = 5;
+  // Identity of the entry committed at commit_index (its term + requestId). A
+  // receiver only advances its commit index if the entry it holds there matches;
+  // otherwise it would commit a stale entry that merely happens to occupy that
+  // index (e.g. a CommitNotice that overtook the matching replication).
+  uint64 commit_term = 6;
+  string commit_request_id = 7;
+}
+
+// InstallSnapshotRequest ships a full snapshot of the committed, applied prefix
+// (state machine + idempotency result cache) to a node whose log is so far
+// behind that the sender has already compacted the entries it would need for a
+// CatchUp backfill. last_included_index/term/request_id identify the boundary
+// entry so the receiver can keep log-matching and commit-identity checks
+// working across the cut.
+message InstallSnapshotRequest {
+  uint64 global_term = 1;
+  string sender_node_id = 2;
+  uint64 last_included_index = 3;
+  uint64 last_included_term = 4;
+  string last_included_request_id = 5;
+  // JSON map[string]string of the applied state machine at last_included_index.
+  bytes state_machine = 6;
+  // JSON map[string]ClientResult idempotency cache (merged on the receiver).
+  bytes results = 7;
+  // When set, the receiving Domain Leader fans the snapshot out to its domain
+  // followers and reports whether an in-domain quorum installed it.
+  bool fanout_to_domain = 8;
+}
+
+message InstallSnapshotResponse {
+  uint64 global_term = 1;
+  // The receiver's last log index after installation (snapshot or retained tail).
+  uint64 last_index = 2;
+  // True when the receiver's state now covers last_included_index.
+  bool installed = 3;
+  // With fanout: true when an in-domain quorum durably covers the snapshot.
+  bool quorum = 4;
+}
+
+message ClientWriteRequest {
+  string request_id = 1;
+  string origin_domain = 2;
+  string reply_route = 3;
+  string key = 4;
+  string value = 5;
+}
+
+message ClientResult {
+  string request_id = 1;
+  uint64 global_term = 2;
+  uint64 global_index = 3;
+  string result = 4;
+  string source = 5;
+  bool committed = 6;
+  string redirect_address = 7;
+  string error = 8;
+  string responder_domain = 9;
+}
+
+message ClientReadRequest {
+  string key = 1;
+  string origin_domain = 2;
+}
+
+message ClientReadResponse {
+  string value = 1;
+  string redirect_address = 2;
+  string error = 3;
+}
+
+message NodeStatusRequest {}
+
+message NodeStatusResponse {
+  string node_id = 1;
+  string domain_code = 2;
+  string stage = 3;
+  string domain_role = 4;
+  string global_role = 5;
+  DomainLeaderIdentity domain_leader = 6;
+  DomainLeaderIdentity global_leader = 7;
+  uint64 global_term = 8;
+  string global_leader_address = 9;
+  uint64 domain_term = 10;
+  uint64 commit_index = 11;
+  uint64 applied_index = 12;
+  // Last log index compacted into the local snapshot (0 = never compacted).
+  uint64 snapshot_index = 13;
+}
+
+message TopologyRequest {
+  string origin_domain = 1;
+}
+
+message DomainEndpoint {
+  string domain_id = 1;
+  string node_id = 2;
+  string client_address = 3;
+  string inter_domain_address = 4;
+  bool domain_leader = 5;
+  bool global_leader = 6;
+}
+
+message TopologyResponse {
+  uint64 global_term = 1;
+  DomainLeaderIdentity global_leader = 2;
+  string global_leader_address = 3;
+  repeated DomainEndpoint domain_leaders = 4;
+  uint64 ttl_millis = 5;
+  string redirect_address = 6;
+  string error = 7;
+}
+
+service DomainElection {
+  rpc RequestVote(DomainVoteRequest) returns (DomainVoteResponse);
+  rpc Heartbeat(DomainHeartbeat) returns (DomainVoteResponse);
+  rpc PublishReady(DomainLeaderReady) returns (DomainVoteResponse);
+}
+
+service GlobalElection {
+  rpc RequestVote(GlobalVoteRequest) returns (GlobalVoteResponse);
+  rpc Heartbeat(GlobalHeartbeat) returns (GlobalVoteResponse);
+}
+
+service Replication {
+  rpc Replicate(ReplicateEntry) returns (DomainQuorumAck);
+  rpc AnnounceGlobalDomainQuorum(GlobalDomainQuorumAck) returns (DomainQuorumAck);
+  rpc Commit(CommitNotice) returns (DomainQuorumAck);
+  rpc InstallSnapshot(InstallSnapshotRequest) returns (InstallSnapshotResponse);
+}
+
+service Client {
+  rpc Write(ClientWriteRequest) returns (ClientResult);
+  rpc Read(ClientReadRequest) returns (ClientReadResponse);
+  rpc Status(NodeStatusRequest) returns (NodeStatusResponse);
+  rpc DiscoverTopology(TopologyRequest) returns (TopologyResponse);
+}
+
+service ClientCallback {
+  rpc FastReturn(ClientResult) returns (Empty);
+}
+
+// Telemetry carries the optimizer's real measurements: cross-domain RTT probes
+// between Domain Leaders and per-domain reports aggregated at the Global Leader.
+// It also carries the safe Global Leader migration trigger.
+message PingRequest {
+  string from_domain = 1;
+  string from_node_id = 2;
+}
+
+message PingResponse {
+  string responder_node_id = 1;
+  string responder_domain = 2;
+}
+
+message DomainRtt {
+  string to_domain = 1;
+  uint64 one_way_millis = 2;
+}
+
+message TelemetryReport {
+  DomainLeaderIdentity reporter = 1;
+  repeated DomainRtt rtts = 2;
+  bool domain_available = 3;
+  uint64 global_term = 4;
+}
+
+message FloatingDomainRtt {
+  string to_domain = 1;
+  uint64 rtt_millis = 2;
+  uint64 one_way_millis = 3;
+}
+
+message FloatingLatencyReport {
+  string origin_domain = 1;
+  uint64 global_term = 2;
+  repeated FloatingDomainRtt rtts = 3;
+}
+
+message BeginMigrationRequest {
+  string target_domain = 1;
+  uint64 from_global_term = 2;
+  string reason = 3;
+}
+
+message BeginMigrationResponse {
+  bool accepted = 1;
+  uint64 new_global_term = 2;
+  string error = 3;
+}
+
+// CatchUp drives the pre-handoff phase of a safe Global Leader migration. The
+// current Global Leader streams the entries the target Domain Leader is missing
+// (up to the migration barrier) and the target replies with how far it has
+// durably replicated inside its own domain. An empty entries list is a probe
+// that only asks the target to report its current progress.
+message CatchUpRequest {
+  uint64 barrier_index = 1;
+  repeated ReplicateEntry entries = 2;
+}
+
+message CatchUpResponse {
+  uint64 domain_quorum_index = 1;
+  uint64 last_index = 2;
+}
+
+service Telemetry {
+  rpc Ping(PingRequest) returns (PingResponse);
+  rpc ReportTelemetry(TelemetryReport) returns (Empty);
+  rpc ReportFloatingLatency(FloatingLatencyReport) returns (Empty);
+  rpc BeginMigration(BeginMigrationRequest) returns (BeginMigrationResponse);
+  rpc CatchUp(CatchUpRequest) returns (CatchUpResponse);
+  // Move is the GL-only administrative trigger for a safe Global Leader handoff.
+  // The decision of WHERE to move (the paper cost model + policy) lives entirely
+  // in an external controller (cmd/cdraft-mover); the node only executes the
+  // handoff and only when it is itself the current Global Leader.
+  rpc Move(MoveRequest) returns (MoveResponse);
+}
+
+// MoveRequest asks the receiving node, which MUST be the current Global Leader,
+// to hand the Global Leadership to target_domain via the safe catch-up handoff.
+message MoveRequest {
+  string target_domain = 1;
+  string reason = 2;
+}
+
+message MoveResponse {
+  bool accepted = 1;          // the handoff completed and GL now serves target_domain
+  string error = 2;          // populated when accepted=false
+  uint64 from_global_term = 3;
+  uint64 new_global_term = 4;
+  // not_global_leader is set when this node is not the current GL; the caller
+  // should resolve and retarget the real Global Leader (see global_leader).
+  bool not_global_leader = 5;
+  DomainLeaderIdentity global_leader = 6;
+}
+
+// Metrics exposes the observability surface required to verify core mechanisms
+// and to FEED the external migration controller: leaders, terms,
+// quorum/commit/apply positions, Fast Return and race outcomes, rejection
+// reasons, the per-domain request distribution (W/R window stats) and the
+// measured inter-domain RTT matrix. The cost model is deliberately NOT computed
+// here — the controller derives candidate costs from these raw signals.
+message MetricsResponse {
+  string node_id = 1;
+  string domain_code = 2;
+  string stage = 3;
+  DomainLeaderIdentity global_leader = 4;
+  uint64 global_term = 5;
+  map<string, string> domain_leaders = 6;
+  map<string, uint64> domain_quorum_index = 7;
+  uint64 known_global_commit_index = 8;
+  uint64 applied_index = 9;
+  uint64 fast_return_success = 10;
+  uint64 fast_return_degraded = 11;
+  uint64 race_global_wins = 12;
+  uint64 race_fast_wins = 13;
+  uint64 late_responses = 14;
+  uint64 inconsistent_responses = 15;
+  map<string, uint64> rejections_by_reason = 16;
+  map<string, uint64> write_requests_by_domain = 17;
+  map<string, uint64> read_requests_by_domain = 18;
+  map<string, uint64> inter_domain_rtt_millis = 19;
+  uint64 migrations = 23;
+  string last_migration = 24;
+  uint64 snapshot_last_index = 25;
+  map<string, uint64> floating_latency_age_millis = 26;
+  uint64 floating_responder_selected = 27;
+  uint64 floating_responder_degraded = 28;
+  uint64 floating_race_global_wins = 29;
+  uint64 floating_race_fast_wins = 30;
+  map<string, uint64> floating_responder_by_domain = 31;
+}
+
+service Metrics {
+  rpc Snapshot(NodeStatusRequest) returns (MetricsResponse);
+}

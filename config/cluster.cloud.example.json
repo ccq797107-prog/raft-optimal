@@ -1,0 +1,23 @@
+{
+  "applicationGroup": "cd-raft",
+  "_comment": "Cloud (elastic-IP) topology. Each domain maps to a region/VPC. SAME-domain peers and clients dial listenAddress over the PRIVATE network; CROSS-domain peers dial publicInterDomainAddress (the elastic/public IP). The node binds 0.0.0.0 so it can receive NAT-ed elastic-IP traffic. WHEN AN ELASTIC IP CHANGES, edit ONLY that node's publicInterDomainAddress.",
+  "nodes": [
+    {"id": "a1", "domainCode": "domain-a", "listenAddress": "10.0.1.11:7101", "interDomainAddress": "10.0.1.11:8101", "bindListenAddress": "0.0.0.0:7101", "bindInterDomainAddress": "0.0.0.0:8101", "publicInterDomainAddress": "100.64.0.11:8101"},
+    {"id": "a2", "domainCode": "domain-a", "listenAddress": "10.0.1.12:7101", "interDomainAddress": "10.0.1.12:8101", "bindListenAddress": "0.0.0.0:7101", "bindInterDomainAddress": "0.0.0.0:8101", "publicInterDomainAddress": "100.64.0.12:8101"},
+    {"id": "a3", "domainCode": "domain-a", "listenAddress": "10.0.1.13:7101", "interDomainAddress": "10.0.1.13:8101", "bindListenAddress": "0.0.0.0:7101", "bindInterDomainAddress": "0.0.0.0:8101", "publicInterDomainAddress": "100.64.0.13:8101"},
+
+    {"id": "b1", "domainCode": "domain-b", "listenAddress": "10.0.2.11:7101", "interDomainAddress": "10.0.2.11:8101", "bindListenAddress": "0.0.0.0:7101", "bindInterDomainAddress": "0.0.0.0:8101", "publicInterDomainAddress": "100.64.1.11:8101"},
+    {"id": "b2", "domainCode": "domain-b", "listenAddress": "10.0.2.12:7101", "interDomainAddress": "10.0.2.12:8101", "bindListenAddress": "0.0.0.0:7101", "bindInterDomainAddress": "0.0.0.0:8101", "publicInterDomainAddress": "100.64.1.12:8101"},
+    {"id": "b3", "domainCode": "domain-b", "listenAddress": "10.0.2.13:7101", "interDomainAddress": "10.0.2.13:8101", "bindListenAddress": "0.0.0.0:7101", "bindInterDomainAddress": "0.0.0.0:8101", "publicInterDomainAddress": "100.64.1.13:8101"},
+
+    {"id": "c1", "domainCode": "domain-c", "listenAddress": "10.0.3.11:7101", "interDomainAddress": "10.0.3.11:8101", "bindListenAddress": "0.0.0.0:7101", "bindInterDomainAddress": "0.0.0.0:8101", "publicInterDomainAddress": "100.64.2.11:8101"},
+    {"id": "c2", "domainCode": "domain-c", "listenAddress": "10.0.3.12:7101", "interDomainAddress": "10.0.3.12:8101", "bindListenAddress": "0.0.0.0:7101", "bindInterDomainAddress": "0.0.0.0:8101", "publicInterDomainAddress": "100.64.2.12:8101"},
+    {"id": "c3", "domainCode": "domain-c", "listenAddress": "10.0.3.13:7101", "interDomainAddress": "10.0.3.13:8101", "bindListenAddress": "0.0.0.0:7101", "bindInterDomainAddress": "0.0.0.0:8101", "publicInterDomainAddress": "100.64.2.13:8101"}
+  ],
+  "features": {
+    "fastReturnEnabled": false
+  },
+  "networkSimulation": {
+    "enabled": false
+  }
+}
